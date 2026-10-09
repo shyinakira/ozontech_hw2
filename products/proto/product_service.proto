@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package products;
+
+option go_package = "hw2/product";
+
+message GetProductResponse {
+    int64 sku = 1;
+    string name = 2;
+    int64 price = 3;
+}
+
+message GetProductRequest {
+    int64 sku = 1;
+}
+
+service ProductService {
+    rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+}
