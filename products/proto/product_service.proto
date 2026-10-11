@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package products;
+package hw2.products;
 
-option go_package = "hw2/product";
+option go_package = "hw2/products";
 
 message GetProductResponse {
     int64 sku = 1;
