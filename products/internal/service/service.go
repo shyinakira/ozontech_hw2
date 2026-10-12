@@ -21,7 +21,7 @@ type ProductsService struct {
 func NewProductService() (*ProductsService, error) {
 	s, err := storage.NewStorage()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage: %w")
+		return nil, fmt.Errorf("failed to create storage: %w", err)
 	}
 	return &ProductsService{
 		products: s,
@@ -32,7 +32,7 @@ func (s *ProductsService) GetProduct(ctx context.Context, r *pb.GetProductReques
 	sku := r.GetSku()
 	product, err := s.products.GetProduct(sku)
 	if err != nil {
-		if errors.Is(domain.ErrNotFound, err) {
+		if errors.Is(err, domain.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "product not found")
 		}
 	}

@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const PRODUCTS_DATA_PATH = "../products.json"
+const PRODUCTS_DATA_PATH = "../../products.json"
 
 type Product struct {
 	Name  string `json:"name"`
