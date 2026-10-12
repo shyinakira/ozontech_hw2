@@ -13,5 +13,11 @@ type Cart struct {
 }
 
 func (c *Cart) AddItem(item CartItem) {
-	c.Items = append(c.Items, item)
+    for i := range c.Items {
+        if c.Items[i].SKU == item.SKU {
+            c.Items[i].Count += item.Count
+            return
+        }
+    }
+    c.Items = append(c.Items, item)
 }

@@ -9,7 +9,23 @@ import (
 
 	"hw2/cart/internal/domain"
 	"hw2/cart/internal/storage"
+	pb "hw2/products/gen/go/proto"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+type CartHandler struct {
+	storage *storage.Storage
+	productsClient pb.ProductServiceClient
+}
+
+func NewCartHandler(s *storage.Storage, pc pb.ProductServiceClient) *CartHandler {
+	return &CartHandler{
+		storage: s,
+		productsClient: pc,
+	}
+}
 
 type handlerErrorResponse struct {
 	Status int    `json:"status"`
@@ -30,7 +46,7 @@ type addCartItemBody struct {
 	Count uint32 `json:"count"`
 }
 
-func AddCartItem(w http.ResponseWriter, r *http.Request) {
+func (h *CartHandler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	userIDStr := r.PathValue("user_id")
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
@@ -64,21 +80,14 @@ func AddCartItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	count := body.Count
-	//TODO: gRPC Interact
-	cartItem := domain.CartItem{
-		SKU:   sku,
-		Name:  name,
-		Price: price,
-		Count: count,
-	} //TODO: validate
-	err = storage.AddCartItem(storage.UserID(userID), cartItem)
 
+	product, err := h.productsClient.GetProduct(r.Context(), &pb.GetProductRequest{Sku: int64(sku)})
 	if err != nil {
-		if errors.Is(err, domain.ErrCartNotFound) {
+		if status.Code(err) == codes.NotFound {
 			sendError(handlerErrorResponse{
 				Status: http.StatusNotFound,
 				URL:    r.URL.Path,
-				Msg:    "User not found",
+				Msg:    "Product not found",
 			}, w)
 		} else {
 			log.Printf("unexpected handler error: %v", err)
@@ -90,6 +99,14 @@ func AddCartItem(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	
+	cartItem := domain.CartItem{
+		SKU:   int64(sku),
+		Name:  product.Name,
+		Price: uint32(product.Price),
+		Count: count,
+	} //TODO: validate
+	h.storage.AddCartItem(storage.UserID(userID), cartItem)
 
 	w.WriteHeader(http.StatusCreated)
 }
@@ -106,7 +123,7 @@ type cartResponse struct {
 	TotalPrice uint32     `json:"total_price"`
 }
 
-func buildCartRespone(cart domain.Cart) cartResponse {
+func buildCartResponse(cart domain.Cart) cartResponse {
 	res := cartResponse{}
 	for _, item := range cart.Items {
 		res.Items = append(res.Items, cartItem{
@@ -115,11 +132,13 @@ func buildCartRespone(cart domain.Cart) cartResponse {
 			Count: item.Count,
 			Price: item.Price,
 		})
-		res.TotalPrice += item.Price
+		res.TotalPrice += item.Price * item.Count
 	}
+
+	return res
 }
 
-func GetCart(w http.ResponseWriter, r *http.Request) {
+func (h *CartHandler) GetCart(w http.ResponseWriter, r *http.Request) {
 	userIDStr := r.PathValue("user_id")
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
@@ -131,7 +150,7 @@ func GetCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	cart, err := storage.GetCart(storage.UserID(userID))
+	cart, err := h.storage.GetCart(storage.UserID(userID))
 	if err != nil {
 		if errors.Is(err, domain.ErrCartNotFound) {
 			sendError(handlerErrorResponse{
@@ -150,7 +169,7 @@ func GetCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := buildCartRespone(cart)
+	res := buildCartResponse(cart)
 	err = json.NewEncoder(w).Encode(res)
 	if err != nil {
 		log.Printf("unexpected handler error: %v", err)
