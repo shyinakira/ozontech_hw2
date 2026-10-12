@@ -2,7 +2,7 @@ package storage
 
 import (
 	"fmt"
-	"hw2cart/internal/domain"
+	"hw2/cart/internal/domain"
 )
 type UserID int64
 

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"hw2cart/internal/domain"
-	"hw2cart/internal/storage"
+	"hw2/cart/internal/domain"
+	"hw2/cart/internal/storage"
 )
 
 type handlerErrorResponse struct {
