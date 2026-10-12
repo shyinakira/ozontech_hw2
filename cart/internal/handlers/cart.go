@@ -5,66 +5,71 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"hw2/cart/internal/domain"
 	"hw2/cart/internal/storage"
 	pb "hw2/products/gen/go/proto"
 
+	"github.com/go-playground/validator/v10"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type CartHandler struct {
-	storage *storage.Storage
+	validator      *validator.Validate
+	storage        *storage.Storage
 	productsClient pb.ProductServiceClient
 }
 
 func NewCartHandler(s *storage.Storage, pc pb.ProductServiceClient) *CartHandler {
 	return &CartHandler{
-		storage: s,
+		validator: validator.New(),
+		storage:        s,
 		productsClient: pc,
 	}
 }
 
-type handlerErrorResponse struct {
-	Status int    `json:"status"`
-	URL    string `json:"url"`
-	Msg    string `json:"msg"`
+type cartItem struct {
+	SKU   int64  `json:"sku" validate:"required,min=1"`
+	Name  string `json:"name" validate:"required"`
+	Count int64  `json:"count" validate:"required,min=1"`
+	Price int64  `json:"price" validate:"required,min=0"`
 }
 
-func sendError(r handlerErrorResponse, w http.ResponseWriter) {
-	w.WriteHeader(r.Status)
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(r)
-	if err != nil {
-		log.Printf("failed to send structured response: %w\n", err)
+func (i cartItem) ToDomain() domain.CartItem {
+	return domain.CartItem{
+		SKU:   i.SKU,
+		Name:  i.Name,
+		Count: uint32(i.Count),
+		Price: uint32(i.Price),
 	}
 }
 
 type addCartItemBody struct {
-	Count uint32 `json:"count"`
+	Count int64 `json:"count" validate:"min=1"`
 }
 
 func (h *CartHandler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	userIDStr := r.PathValue("user_id")
 	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
+	if err != nil || userID <= 0 {
 		sendError(handlerErrorResponse{
 			Status: http.StatusBadRequest,
 			URL:    r.URL.Path,
-			Msg:    "User ID must be an int",
+			Msg:    "Invalid user ID",
 		}, w)
 		return
 	}
 
 	skuStr := r.PathValue("sku")
 	sku, err := strconv.Atoi(skuStr)
-	if err != nil {
+	if err != nil || sku <= 0  {
 		sendError(handlerErrorResponse{
 			Status: http.StatusBadRequest,
 			URL:    r.URL.Path,
-			Msg:    "SKU must be an int",
+			Msg:    "Invalid SKU",
 		}, w)
 		return
 	}
@@ -74,7 +79,7 @@ func (h *CartHandler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		sendError(handlerErrorResponse{
 			Status: http.StatusBadRequest,
 			URL:    r.URL.Path,
-			Msg:    "Invalid body request",
+			Msg:    "Invalid request body",
 		}, w)
 		return
 	}
@@ -85,9 +90,9 @@ func (h *CartHandler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			sendError(handlerErrorResponse{
-				Status: http.StatusNotFound,
+				Status: http.StatusPreconditionFailed,
 				URL:    r.URL.Path,
-				Msg:    "Product not found",
+				Msg:    "Product doesn't exists",
 			}, w)
 		} else {
 			log.Printf("unexpected handler error: %v", err)
@@ -99,23 +104,26 @@ func (h *CartHandler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	
-	cartItem := domain.CartItem{
+
+	cartItem := cartItem{
 		SKU:   int64(sku),
 		Name:  product.Name,
-		Price: uint32(product.Price),
+		Price: product.Price,
 		Count: count,
-	} //TODO: validate
-	h.storage.AddCartItem(storage.UserID(userID), cartItem)
+	}
+	err = h.validator.Struct(cartItem)
+	if err != nil {
+		sendError(handlerErrorResponse{
+			Status: http.StatusBadRequest,
+			URL:    r.URL.Path,
+			Msg:    "Invalid item data",
+		}, w)
+		return
+	}
+	
+	h.storage.AddCartItem(storage.UserID(userID), cartItem.ToDomain())
 
 	w.WriteHeader(http.StatusCreated)
-}
-
-type cartItem struct {
-	SKU   int64  `json:"sku"`
-	Name  string `json:"name"`
-	Count uint32 `json:"count"`
-	Price uint32 `json:"price"`
 }
 
 type cartResponse struct {
@@ -127,36 +135,48 @@ func buildCartResponse(cart domain.Cart) cartResponse {
 	res := cartResponse{}
 	for _, item := range cart.Items {
 		res.Items = append(res.Items, cartItem{
-			SKU: item.SKU,
-			Name: item.Name,
-			Count: item.Count,
-			Price: item.Price,
+			SKU:   item.SKU,
+			Name:  item.Name,
+			Count: int64(item.Count),
+			Price: int64(item.Price),
 		})
 		res.TotalPrice += item.Price * item.Count
 	}
 
+	sort.Slice(res.Items, func(i, j int) bool {
+		return res.Items[i].SKU < res.Items[j].SKU
+	})
 	return res
 }
 
 func (h *CartHandler) GetCart(w http.ResponseWriter, r *http.Request) {
 	userIDStr := r.PathValue("user_id")
 	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
+	if err != nil || userID <= 0 {
 		sendError(handlerErrorResponse{
 			Status: http.StatusBadRequest,
 			URL:    r.URL.Path,
-			Msg:    "User ID must be an int",
+			Msg:    "Invalid user ID",
 		}, w)
 		return
 	}
-	
+
+	if userID <= 0 {
+		sendError(handlerErrorResponse{
+			Status: http.StatusBadRequest,
+			URL:    r.URL.Path,
+			Msg:    "User ID must be greater than 0",
+		}, w)
+		return
+	}
+
 	cart, err := h.storage.GetCart(storage.UserID(userID))
 	if err != nil {
 		if errors.Is(err, domain.ErrCartNotFound) {
 			sendError(handlerErrorResponse{
 				Status: http.StatusNotFound,
 				URL:    r.URL.Path,
-				Msg:    "User not found",
+				Msg:    "Cart not found",
 			}, w)
 		} else {
 			log.Printf("unexpected handler error: %v", err)
@@ -167,6 +187,14 @@ func (h *CartHandler) GetCart(w http.ResponseWriter, r *http.Request) {
 			}, w)
 		}
 		return
+	}
+
+	if len(cart.Items) == 0 {
+		sendError(handlerErrorResponse{
+			Status: http.StatusNotFound,
+			URL:    r.URL.Path,
+			Msg:    "Cart not found",
+		}, w)
 	}
 
 	res := buildCartResponse(cart)
