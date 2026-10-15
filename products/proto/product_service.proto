@@ -7,7 +7,7 @@ option go_package = "hw2/products";
 message GetProductResponse {
     int64 sku = 1;
     string name = 2;
-    int64 price = 3;
+    int32 price = 3;
 }
 
 message GetProductRequest {

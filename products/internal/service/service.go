@@ -45,6 +45,6 @@ func (s *ProductsService) GetProduct(ctx context.Context, r *pb.GetProductReques
 	return &pb.GetProductResponse{
 		Sku: sku,
 		Name: product.Name,
-		Price: int64(product.Price),
+		Price: int32(product.Price),
 	}, nil
 }
