@@ -42,11 +42,15 @@ func NewStorage() (*Storage, error) {
 	}, nil
 }
 
-func (s *Storage) GetProduct(id int64) (Product, error) {
+func (s *Storage) GetProduct(id int64) (domain.Product, error) {
 	product, ok := s.products[id]
 	if !ok {
-		return Product{}, fmt.Errorf("unknown id %d: %w", id, domain.ErrNotFound)
+		return domain.Product{}, fmt.Errorf("unknown id %d: %w", id, domain.ErrNotFound)
 	}
 
-	return product, nil
+	return domain.Product{
+		Id:    id,
+		Name:  product.Name,
+		Price: uint32(product.Price),
+	}, nil
 }
