@@ -76,6 +76,12 @@ func (h *CartHandler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 				URL:    r.URL.Path,
 				Msg:    "Invalid sku count",
 			}, w)
+		} else if errors.Is(err, domain.ErrProductNotFound) {
+			sendError(handlerErrorResponse{
+				Status: http.StatusPreconditionFailed,
+				URL:    r.URL.Path,
+				Msg:    "Unknown product",
+			}, w)
 		} else {
 			sendError(handlerErrorResponse{
 				Status: http.StatusInternalServerError,

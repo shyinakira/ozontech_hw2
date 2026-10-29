@@ -7,6 +7,9 @@ import (
 
 	"hw2/cart/internal/domain"
 	pb "hw2/products/gen/go/proto"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Storage interface {
@@ -43,6 +46,9 @@ func (h *CartService) AddCartItem(ctx context.Context, userIDStr string, skuIDSt
 
 	product, err := h.productsClient.GetProduct(ctx, &pb.GetProductRequest{Sku: int64(sku)})
 	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return domain.ErrProductNotFound
+		}
 		return fmt.Errorf("failed to check product: %w", err)
 	}
 
