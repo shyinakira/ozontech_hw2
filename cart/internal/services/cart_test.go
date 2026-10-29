@@ -55,6 +55,8 @@ func (c *MockProductServiceClient) GetProduct(ctx context.Context, in *pb.GetPro
 }
 
 func TestAddCartItem(t *testing.T) {
+	t.Parallel()
+	
 	type testAddCartItemInput struct {
 		userIDStr string
 		skuIDStr  string
@@ -115,6 +117,7 @@ func TestAddCartItem(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			service := NewCartService(test.cartStorage, test.productClient)
 			err := service.AddCartItem(t.Context(), test.in.userIDStr, test.in.skuIDStr, test.in.count)
 			require.Equal(t, err, test.expectedError)
@@ -123,7 +126,8 @@ func TestAddCartItem(t *testing.T) {
 }
 
 func TestGetCart(t *testing.T) {
-
+	t.Parallel()
+	
 	tests := []struct {
 		name                 string
 		cartStorage          *MockStorage
@@ -157,6 +161,7 @@ func TestGetCart(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			service := NewCartService(test.cartStorage, test.productClient)
 			cart, err := service.GetCart(test.userIDStr)
 			require.ErrorIs(t, err, test.expectedError)

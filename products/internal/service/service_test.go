@@ -34,6 +34,7 @@ type ServiceTestCase struct {
 }
 
 func TestService(t *testing.T) {
+	t.Parallel()
 	tests := []ServiceTestCase{
 		{
 			name: "default",
@@ -91,9 +92,10 @@ func TestService(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			service, err := NewProductService(test.storageState)
 			if err != nil {
-				require.Fail(t, "failde to create service")
+				require.Fail(t, "failed to create service")
 			}
 
 			resp, err := service.GetProduct(t.Context(), test.req)
