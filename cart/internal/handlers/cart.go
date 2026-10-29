@@ -6,28 +6,18 @@ import (
 	"log"
 	"net/http"
 	"sort"
-	"strconv"
 
 	"hw2/cart/internal/domain"
-	"hw2/cart/internal/storage"
-	pb "hw2/products/gen/go/proto"
-
-	"github.com/go-playground/validator/v10"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"hw2/cart/internal/services"
 )
 
 type CartHandler struct {
-	validator      *validator.Validate
-	storage        *storage.Storage
-	productsClient pb.ProductServiceClient
+	service *services.CartService
 }
 
-func NewCartHandler(s *storage.Storage, pc pb.ProductServiceClient) *CartHandler {
+func NewCartHandler(s *services.CartService) *CartHandler {
 	return &CartHandler{
-		validator: validator.New(),
-		storage:        s,
-		productsClient: pc,
+		service: s,
 	}
 }
 
@@ -53,26 +43,8 @@ type addCartItemBody struct {
 
 func (h *CartHandler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 	userIDStr := r.PathValue("user_id")
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil || userID <= 0 {
-		sendError(handlerErrorResponse{
-			Status: http.StatusBadRequest,
-			URL:    r.URL.Path,
-			Msg:    "Invalid user ID",
-		}, w)
-		return
-	}
 
 	skuStr := r.PathValue("sku")
-	sku, err := strconv.Atoi(skuStr)
-	if err != nil || sku <= 0  {
-		sendError(handlerErrorResponse{
-			Status: http.StatusBadRequest,
-			URL:    r.URL.Path,
-			Msg:    "Invalid SKU",
-		}, w)
-		return
-	}
 
 	var body addCartItemBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -84,52 +56,35 @@ func (h *CartHandler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	count := body.Count
-	if count <= 0 {
-		sendError(handlerErrorResponse{
-			Status: http.StatusBadRequest,
-			URL:    r.URL.Path,
-			Msg:    "Invalid request body",
-		}, w)
-		return
-	}
-
-	product, err := h.productsClient.GetProduct(r.Context(), &pb.GetProductRequest{Sku: int64(sku)})
+	err := h.service.AddCartItem(r.Context(), userIDStr, skuStr, uint32(body.Count))
 	if err != nil {
-		if status.Code(err) == codes.NotFound {
+		if errors.Is(err, domain.ErrInvalidUserID) {
 			sendError(handlerErrorResponse{
-				Status: http.StatusPreconditionFailed,
+				Status: http.StatusBadRequest,
 				URL:    r.URL.Path,
-				Msg:    "Product doesn't exists",
+				Msg:    "Invalid user id",
+			}, w)
+		} else if errors.Is(err, domain.ErrInvalidSkuID) {
+			sendError(handlerErrorResponse{
+				Status: http.StatusBadRequest,
+				URL:    r.URL.Path,
+				Msg:    "Invalid sku id",
+			}, w)
+		} else if errors.Is(err, domain.ErrInvalidSkuCount) {
+			sendError(handlerErrorResponse{
+				Status: http.StatusBadRequest,
+				URL:    r.URL.Path,
+				Msg:    "Invalid sku count",
 			}, w)
 		} else {
-			log.Printf("unexpected handler error: %v", err)
 			sendError(handlerErrorResponse{
 				Status: http.StatusInternalServerError,
 				URL:    r.URL.Path,
-				Msg:    "Internal Server Error",
+				Msg:    "Internal error",
 			}, w)
 		}
 		return
 	}
-
-	cartItem := cartItem{
-		SKU:   int64(sku),
-		Name:  product.Name,
-		Price: product.Price,
-		Count: count,
-	}
-	err = h.validator.Struct(cartItem)
-	if err != nil {
-		sendError(handlerErrorResponse{
-			Status: http.StatusBadRequest,
-			URL:    r.URL.Path,
-			Msg:    "Invalid item data",
-		}, w)
-		return
-	}
-	
-	h.storage.AddCartItem(storage.UserID(userID), cartItem.ToDomain())
 
 	w.WriteHeader(http.StatusCreated)
 }
@@ -159,17 +114,8 @@ func buildCartResponse(cart domain.Cart) cartResponse {
 
 func (h *CartHandler) GetCart(w http.ResponseWriter, r *http.Request) {
 	userIDStr := r.PathValue("user_id")
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil || userID <= 0 {
-		sendError(handlerErrorResponse{
-			Status: http.StatusBadRequest,
-			URL:    r.URL.Path,
-			Msg:    "Invalid user ID",
-		}, w)
-		return
-	}
 
-	cart, err := h.storage.GetCart(storage.UserID(userID))
+	cart, err := h.service.GetCart(userIDStr)
 	if err != nil {
 		if errors.Is(err, domain.ErrCartNotFound) {
 			sendError(handlerErrorResponse{
@@ -185,15 +131,6 @@ func (h *CartHandler) GetCart(w http.ResponseWriter, r *http.Request) {
 				Msg:    "Internal Server Error",
 			}, w)
 		}
-		return
-	}
-
-	if len(cart.Items) == 0 {
-		sendError(handlerErrorResponse{
-			Status: http.StatusNotFound,
-			URL:    r.URL.Path,
-			Msg:    "Cart not found",
-		}, w)
 		return
 	}
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"hw2/cart/internal/handlers"
+	"hw2/cart/internal/services"
 	"hw2/cart/internal/storage"
 	pb "hw2/products/gen/go/proto"
 
@@ -29,7 +30,8 @@ func main() {
 	}
 	productsClient := pb.NewProductServiceClient(connGrpc)
 
-	cartHandler := handlers.NewCartHandler(storage, productsClient)
+	cartService := services.NewCartService(storage, productsClient)
+	cartHandler := handlers.NewCartHandler(cartService)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /user/{user_id}/cart/{sku}", cartHandler.AddCartItem)

@@ -1,4 +1,4 @@
-package handlers
+package services
 
 import (
 	"context"
@@ -7,37 +7,33 @@ import (
 
 	"hw2/cart/internal/domain"
 	pb "hw2/products/gen/go/proto"
-
-	"github.com/go-playground/validator/v10"
 )
 
 type Storage interface {
-	AddCartItem(userID storage.UserID, item domain.CartItem)
-	GetCart(userID storage.UserID) (domain.Cart, error)
+	AddCartItem(userID domain.UserID, item domain.CartItem)
+	GetCart(userID domain.UserID) (domain.Cart, error)
 }
 
 type CartService struct {
-	validator      *validator.Validate
 	storage        Storage
 	productsClient pb.ProductServiceClient
 }
 
-func NewCartService(s *storage.Storage, pc pb.ProductServiceClient) *CartService {
+func NewCartService(s Storage, pc pb.ProductServiceClient) *CartService {
 	return &CartService{
-		validator: validator.New(),
 		storage:        s,
 		productsClient: pc,
 	}
 }
 
-func (h *CartService) AddCartItem(ctx context.Context, userIDStr string, skuIDStr string, count int32) error {
+func (h *CartService) AddCartItem(ctx context.Context, userIDStr string, skuIDStr string, count uint32) error {
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil || userID <= 0 {
 		return domain.ErrInvalidUserID
 	}
 
 	sku, err := strconv.Atoi(skuIDStr)
-	if err != nil || sku <= 0  {
+	if err != nil || sku <= 0 {
 		return domain.ErrInvalidSkuID
 	}
 
@@ -54,10 +50,10 @@ func (h *CartService) AddCartItem(ctx context.Context, userIDStr string, skuIDSt
 		SKU:   int64(sku),
 		Name:  product.Name,
 		Price: uint32(product.Price),
-		Count: uint32(count),
+		Count: count,
 	}
-	
-	h.storage.AddCartItem(storage.UserID(userID), cartItem)
+
+	h.storage.AddCartItem(domain.UserID(userID), cartItem)
 
 	return nil
 }
@@ -68,7 +64,7 @@ func (h *CartService) GetCart(userIDStr string) (domain.Cart, error) {
 		return domain.Cart{}, domain.ErrInvalidUserID
 	}
 
-	cart, err := h.storage.GetCart(storage.UserID(userID))
+	cart, err := h.storage.GetCart(domain.UserID(userID))
 	if err != nil {
 		return domain.Cart{}, fmt.Errorf("failed to get user cart from storage: %w", err)
 	}
