@@ -3,26 +3,24 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	pb "hw2/products/gen/go/proto"
 	"hw2/products/internal/domain"
-	"hw2/products/internal/storage"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-type ProductsService struct {
-	pb.UnimplementedProductServiceServer
-	products *storage.Storage
+type Storage interface {
+	GetProduct(id int64) (domain.Product, error)
 }
 
-func NewProductService() (*ProductsService, error) {
-	s, err := storage.NewStorage()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create storage: %w", err)
-	}
+type ProductsService struct {
+	pb.UnimplementedProductServiceServer
+	products Storage
+}
+
+func NewProductService(s Storage) (*ProductsService, error) {
 	return &ProductsService{
 		products: s,
 	}, nil
