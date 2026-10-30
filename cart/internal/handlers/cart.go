@@ -123,11 +123,23 @@ func (h *CartHandler) GetCart(w http.ResponseWriter, r *http.Request) {
 
 	cart, err := h.service.GetCart(userIDStr)
 	if err != nil {
-		if errors.Is(err, domain.ErrCartNotFound) {
+		if errors.Is(err, domain.ErrInvalidUserID) {
+			sendError(handlerErrorResponse{
+				Status: http.StatusBadRequest,
+				URL:    r.URL.Path,
+				Msg:    "Invalid user id",
+			}, w)
+		} else if errors.Is(err, domain.ErrCartNotFound) {
 			sendError(handlerErrorResponse{
 				Status: http.StatusNotFound,
 				URL:    r.URL.Path,
 				Msg:    "Cart not found",
+			}, w)
+		} else if errors.Is(err, domain.ErrProductNotFound) {
+			sendError(handlerErrorResponse{
+				Status: http.StatusPreconditionFailed,
+				URL:    r.URL.Path,
+				Msg:    "Product not found",
 			}, w)
 		} else {
 			log.Printf("unexpected handler error: %v", err)

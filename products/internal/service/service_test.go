@@ -4,12 +4,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	pb "hw2/products/gen/go/proto"
 	"hw2/products/internal/domain"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type MockStorage struct {
@@ -18,89 +18,101 @@ type MockStorage struct {
 
 func (s *MockStorage) GetProduct(id int64) (domain.Product, error) {
 	p, ok := s.storage[id]
-	if ok != true {
+	if !ok {
 		return domain.Product{}, domain.ErrNotFound
 	}
 
 	return p, nil
 }
 
-type ServiceTestCase struct {
-	name             string
-	storageState     *MockStorage
-	req              *pb.GetProductRequest
-	expectedResponse *pb.GetProductResponse
-	expectedError    error
-}
-
 func TestService(t *testing.T) {
 	t.Parallel()
-	tests := []ServiceTestCase{
+
+	tests := []struct {
+		name             string
+		storageMap       map[int64]domain.Product
+		req              *pb.GetProductRequest
+		expectedResponse *pb.GetProductResponse
+		expectedCode     codes.Code
+	}{
 		{
-			name: "default",
-			storageState: &MockStorage{
-				storage: map[int64]domain.Product{
-					1: domain.Product{
-						Id:    1,
-						Name:  "product_1",
-						Price: 100,
-					},
+			name: "happy path",
+			storageMap: map[int64]domain.Product{
+				1: {
+					Id:    1,
+					Name:  "product_1",
+					Price: 100,
 				},
 			},
 			req: &pb.GetProductRequest{
 				Sku: 1,
 			},
 			expectedResponse: &pb.GetProductResponse{
-				Sku: 1,
+				Sku:   1,
 				Name:  "product_1",
 				Price: 100,
 			},
+			expectedCode: codes.OK,
 		},
 		{
 			name: "not found",
-			storageState: &MockStorage{
-				storage: map[int64]domain.Product{
-					1: domain.Product{
-						Id:    1,
-						Name:  "produc1_1",
-						Price: 100,
-					},
+			storageMap: map[int64]domain.Product{
+				1: {
+					Id:    1,
+					Name:  "product_1",
+					Price: 100,
 				},
 			},
 			req: &pb.GetProductRequest{
 				Sku: 2,
 			},
-			expectedError: status.Error(codes.NotFound, "product not found"),
+			expectedCode: codes.NotFound,
 		},
 		{
-			name: "wrong sku",
-			storageState: &MockStorage{
-				storage: map[int64]domain.Product{
-					1: domain.Product{
-						Id:    1,
-						Name:  "produc1_1",
-						Price: 100,
-					},
+			name: "invalid sku zero",
+			storageMap: map[int64]domain.Product{
+				1: {
+					Id:    1,
+					Name:  "product_1",
+					Price: 100,
+				},
+			},
+			req: &pb.GetProductRequest{
+				Sku: 0,
+			},
+			expectedCode: codes.InvalidArgument,
+		},
+		{
+			name: "invalid sku negative",
+			storageMap: map[int64]domain.Product{
+				1: {
+					Id:    1,
+					Name:  "product_1",
+					Price: 100,
 				},
 			},
 			req: &pb.GetProductRequest{
 				Sku: -1,
 			},
-			expectedError: status.Error(codes.InvalidArgument, "sku must be greater than 0"),
+			expectedCode: codes.InvalidArgument,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			service, err := NewProductService(test.storageState)
-			if err != nil {
-				require.Fail(t, "failed to create service")
-			}
+
+			mockStorage := &MockStorage{storage: test.storageMap}
+			service, err := NewProductService(mockStorage)
+			require.NoError(t, err)
 
 			resp, err := service.GetProduct(t.Context(), test.req)
-			require.Equal(t, test.expectedResponse, resp)
-			require.Equal(t, test.expectedError, err)
+
+			require.Equal(t, test.expectedCode, status.Code(err))
+
+			if test.expectedCode == codes.OK {
+				require.True(t, proto.Equal(test.expectedResponse, resp))
+			}
 		})
 	}
 }

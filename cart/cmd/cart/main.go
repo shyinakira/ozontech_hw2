@@ -25,8 +25,8 @@ func main() {
 
 	connGrpc, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Printf("failed to create grpc conn :50051, %v\n", err)
-		// log.Fatalf("failed to create grpc conn :50051, %v", err)
+		// log.Printf("failed to create grpc conn :50051, %v\n", err)
+		log.Fatalf("failed to create grpc conn :50051, %v", err)
 	}
 	productsClient := pb.NewProductServiceClient(connGrpc)
 

@@ -6,6 +6,7 @@ replace hw2/products => ../products
 
 require (
 	github.com/stretchr/testify v1.12.1
+	golang.org/x/sync v0.23.0
 	google.golang.org/grpc v1.84.0
 	hw2/products v0.0.0
 )

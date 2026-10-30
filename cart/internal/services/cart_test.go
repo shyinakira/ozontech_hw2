@@ -13,51 +13,78 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var (
-	SUCCESS_CART = domain.Cart{
-		Items: []domain.CartItem{
-			{
-				SKU:   1,
-				Name:  "test_product",
-				Count: 2,
-				Price: 100,
-			},
-		},
-		TotalPrice: 200,
+type MockStorage struct {
+	carts map[domain.UserID]*domain.Cart
+}
+
+func NewMockStorage() *MockStorage {
+	return &MockStorage{
+		carts: make(map[domain.UserID]*domain.Cart),
 	}
-)
+}
 
-type MockStorage struct{}
-
-func (s *MockStorage) AddCartItem(userID domain.UserID, item domain.CartItem) {}
+func (s *MockStorage) AddCartItem(userID domain.UserID, item domain.CartItem) {
+	cart, ok := s.carts[userID]
+	if !ok {
+		s.carts[userID] = &domain.Cart{
+			Items:      []domain.CartItem{item},
+			TotalPrice: item.Price,
+		}
+		return
+	}
+	cart.AddItem(item)
+}
 
 func (s *MockStorage) GetCart(userID domain.UserID) (domain.Cart, error) {
-	if userID != 1 {
+	cart, ok := s.carts[userID]
+	if !ok || len(cart.Items) == 0 {
 		return domain.Cart{}, domain.ErrCartNotFound
 	}
 
-	return SUCCESS_CART, nil
+	itemsCopy := make([]domain.CartItem, len(cart.Items))
+	copy(itemsCopy, cart.Items)
+
+	return domain.Cart{
+		Items:      itemsCopy,
+		TotalPrice: cart.TotalPrice,
+	}, nil
 }
 
-type MockProductServiceClient struct{}
+type MockProductServiceClient struct {
+	products map[int64]*pb.GetProductResponse
+}
+
+func NewMockProductServiceClient() *MockProductServiceClient {
+	return &MockProductServiceClient{
+		products: map[int64]*pb.GetProductResponse{
+			1: {
+				Sku:   1,
+				Name:  "test_product_1",
+				Price: 100,
+			},
+			2: {
+				Sku:   2,
+				Name:  "test_product_2",
+				Price: 200,
+			},
+		},
+	}
+}
 
 func (c *MockProductServiceClient) GetProduct(ctx context.Context, in *pb.GetProductRequest, opts ...grpc.CallOption) (*pb.GetProductResponse, error) {
 	sku := in.GetSku()
-	if sku != 1 {
+	prod, ok := c.products[sku]
+	if !ok {
 		return nil, status.Error(codes.NotFound, "product not found")
 	}
 
-	return &pb.GetProductResponse{
-		Sku:   sku,
-		Name:  "test_product",
-		Price: 100,
-	}, nil
+	return prod, nil
 }
 
 func TestAddCartItem(t *testing.T) {
 	t.Parallel()
-	
-	type testAddCartItemInput struct {
+
+	type input struct {
 		userIDStr string
 		skuIDStr  string
 		count     uint32
@@ -65,26 +92,21 @@ func TestAddCartItem(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		cartStorage   *MockStorage
-		productClient *MockProductServiceClient
-		in            testAddCartItemInput
+		in            input
 		expectedError error
 	}{
 		{
-			name:          "default",
-			cartStorage:   &MockStorage{},
-			productClient: &MockProductServiceClient{},
-			in: testAddCartItemInput{
+			name: "happy path",
+			in: input{
 				userIDStr: "1",
 				skuIDStr:  "1",
 				count:     2,
 			},
+			expectedError: nil,
 		},
 		{
-			name:          "invalid user id",
-			cartStorage:   &MockStorage{},
-			productClient: &MockProductServiceClient{},
-			in: testAddCartItemInput{
+			name: "invalid user id negative",
+			in: input{
 				userIDStr: "-100",
 				skuIDStr:  "1",
 				count:     2,
@@ -92,10 +114,35 @@ func TestAddCartItem(t *testing.T) {
 			expectedError: domain.ErrInvalidUserID,
 		},
 		{
-			name:          "invalid sku count",
-			cartStorage:   &MockStorage{},
-			productClient: &MockProductServiceClient{},
-			in: testAddCartItemInput{
+			name: "invalid user id zero",
+			in: input{
+				userIDStr: "0",
+				skuIDStr:  "1",
+				count:     2,
+			},
+			expectedError: domain.ErrInvalidUserID,
+		},
+		{
+			name: "invalid sku id negative",
+			in: input{
+				userIDStr: "1",
+				skuIDStr:  "-5",
+				count:     2,
+			},
+			expectedError: domain.ErrInvalidSkuID,
+		},
+		{
+			name: "invalid sku id zero",
+			in: input{
+				userIDStr: "1",
+				skuIDStr:  "0",
+				count:     2,
+			},
+			expectedError: domain.ErrInvalidSkuID,
+		},
+		{
+			name: "invalid count zero",
+			in: input{
 				userIDStr: "1",
 				skuIDStr:  "1",
 				count:     0,
@@ -103,69 +150,92 @@ func TestAddCartItem(t *testing.T) {
 			expectedError: domain.ErrInvalidSkuCount,
 		},
 		{
-			name:          "products service AddCartItem error",
-			cartStorage:   &MockStorage{},
-			productClient: &MockProductServiceClient{},
-			in: testAddCartItemInput{
+			name: "product not found in product service",
+			in: input{
 				userIDStr: "1",
-				skuIDStr:  "2",
-				count:     0,
+				skuIDStr:  "9999",
+				count:     1,
 			},
-			expectedError: domain.ErrInvalidSkuCount,
+			expectedError: domain.ErrProductNotFound,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			service := NewCartService(test.cartStorage, test.productClient)
+
+			mockStorage := NewMockStorage()
+			mockClient := NewMockProductServiceClient()
+			service := NewCartService(mockStorage, mockClient)
+
 			err := service.AddCartItem(t.Context(), test.in.userIDStr, test.in.skuIDStr, test.in.count)
-			require.Equal(t, err, test.expectedError)
+			require.ErrorIs(t, err, test.expectedError)
 		})
 	}
 }
 
 func TestGetCart(t *testing.T) {
 	t.Parallel()
-	
+
 	tests := []struct {
 		name                 string
-		cartStorage          *MockStorage
-		productClient        *MockProductServiceClient
+		setupCart            func(s *MockStorage)
 		userIDStr            string
 		expectedCartResponse domain.Cart
 		expectedError        error
 	}{
 		{
-			name:          "default",
-			cartStorage:   &MockStorage{},
-			productClient: &MockProductServiceClient{},
-			userIDStr:     "1",
-			expectedCartResponse: SUCCESS_CART,
-
+			name: "happy path with parallel fetch",
+			setupCart: func(s *MockStorage) {
+				s.AddCartItem(1, domain.CartItem{SKU: 1, Count: 2})
+				s.AddCartItem(1, domain.CartItem{SKU: 2, Count: 1})
+			},
+			userIDStr: "1",
+			expectedCartResponse: domain.Cart{
+				Items: []domain.CartItem{
+					{SKU: 1, Name: "test_product_1", Price: 100, Count: 2},
+					{SKU: 2, Name: "test_product_2", Price: 200, Count: 1},
+				},
+				TotalPrice: 400,
+			},
+			expectedError: nil,
 		},
 		{
-			name:          "invalid user id",
-			cartStorage:   &MockStorage{},
-			productClient: &MockProductServiceClient{},
+			name: "invalid user id negative",
+			setupCart: func(s *MockStorage) {},
+			userIDStr: "-1",
 			expectedError: domain.ErrInvalidUserID,
 		},
 		{
-			name:          "products service GetCart error",
-			cartStorage:   &MockStorage{},
-			productClient: &MockProductServiceClient{},
-			userIDStr:     "2",
+			name: "cart not found",
+			setupCart: func(s *MockStorage) {},
+			userIDStr: "999",
 			expectedError: domain.ErrCartNotFound,
+		},
+		{
+			name: "product removed from product service returns ErrProductNotFound",
+			setupCart: func(s *MockStorage) {
+				s.AddCartItem(1, domain.CartItem{SKU: 999, Count: 1})
+			},
+			userIDStr:     "1",
+			expectedError: domain.ErrProductNotFound,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			service := NewCartService(test.cartStorage, test.productClient)
+
+			mockStorage := NewMockStorage()
+			test.setupCart(mockStorage)
+			mockClient := NewMockProductServiceClient()
+			service := NewCartService(mockStorage, mockClient)
+
 			cart, err := service.GetCart(test.userIDStr)
 			require.ErrorIs(t, err, test.expectedError)
-			require.Equal(t, cart, test.expectedCartResponse)
+			if test.expectedError == nil {
+				require.Equal(t, test.expectedCartResponse, cart)
+			}
 		})
 	}
 }

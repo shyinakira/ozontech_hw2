@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"net/http"
 	"encoding/json"
 	"log"
+	"net/http"
 )
 
 type handlerErrorResponse struct {
@@ -17,6 +17,6 @@ func sendError(r handlerErrorResponse, w http.ResponseWriter) {
 	w.WriteHeader(r.Status)
 	err := json.NewEncoder(w).Encode(r)
 	if err != nil {
-		log.Printf("failed to send structured response: %w\n", err)
+		log.Printf("failed to send structured response: %v\n", err)
 	}
 }
